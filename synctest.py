@@ -83,7 +83,6 @@ def main():
   (dir1, dirnames1, filenames1) = walker1.next()
   (dir2, dirnames2, filenames2) = walker2.next()
   while not done1 and not done2:
-    # print dir1+"\n"+dir2
 
     # check that the subdirectories are the same
 
@@ -184,8 +183,6 @@ def equalfiles(file1, file2):
   # they are the same size?
   if os.path.getsize(file1) != os.path.getsize(file2):
     message += ("\tDifferent file sizes:\n"
-      # +file1+": "+str(os.path.getsize(file1))+"\n"   # todo: convert to human-
-      # +file2+": "+str(os.path.getsize(file2))+"\n")  # readable file size
       +file1+":\n"+str(os.path.getsize(file1))+" bytes "
       +"("+time.ctime(os.path.getmtime(file1))+")\n"  # todo: convert to human-
       +file2+":\n"+str(os.path.getsize(file2))+" bytes "
@@ -201,10 +198,6 @@ def equalfiles(file1, file2):
       +"(CRC32 "+str(crc32(file1))+")\n"
       +file2+":\n"+time.ctime(os.path.getmtime(file2))+" "
       +"(CRC32 "+str(crc32(file2))+")\n")
-      # +file1+": "+time.ctime(os.path.getmtime(file1))+"  "
-      # +"("+str(int(os.path.getmtime(file1)))+")\n"
-      # +file2+": "+time.ctime(os.path.getmtime(file2))+"  "
-      # +"("+str(int(os.path.getmtime(file2)))+")\n")
     equal = False
     return (equal, message)
 
@@ -240,8 +233,6 @@ def print_all(rootdir):
       relfilepath = filepath[len(rootparent)+1:]
       size = str(os.path.getsize(filepath))
       mtime = os.path.getmtime(filepath)
-      # mtime_dec = str(mtime - math.floor(mtime))
-      # datetime = time.strftime("%Y %b %d %H:%M:%S", mtime)+mtime_dec[1:4]
       datetime = time.ctime(mtime)
       datetime = datetime[20:24]+datetime[3:19]#+mtime_dec[1:4]
       print (relfilepath+"\t"+size+"\t"+datetime+"\t"+str(crc32(filepath)))
@@ -262,8 +253,7 @@ def matchup(files1, files2):
   i = j = 0
   while i < len1 and j < len2:
     if files1[i] == files2[j]:
-      # print (str(i)+":"+files1[i]+" "+str(j)+":"+files2[j]
-      #   +" - matched up")
+      # print (str(i)+":"+files1[i]+" "+str(j)+":"+files2[j]+" - matched up")
       i+=1
       j+=1
       continue
