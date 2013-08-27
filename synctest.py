@@ -4,6 +4,16 @@ import os
 import sys
 
 def main():
+
+  arr1 = ['a', 'c', 'd']
+  arr2 = ['a', 'b', 'c', 'd']
+  (missing1, missing2) = matchup(arr1, arr2)
+  print "arr1: "+str(arr1)
+  print "arr2: "+str(arr2)
+  print "missing1: "+str(missing1)
+  print "missing2: "+str(missing2)
+  sys.exit(0)
+
   rootdir1 = ''
   rootdir2 = ''
   if len(sys.argv) > 2:
@@ -55,6 +65,8 @@ def main():
 
 # sort and compare the two lists of filenames, note any that don't have a match
 # in the other list, and delete them.
+  # arr1 = ['a', 'c', 'd']
+  # arr2 = ['a', 'b', 'c', 'd']
 def matchup(files1, files2):
   missing1 = missing2 = []
 
@@ -64,41 +76,58 @@ def matchup(files1, files2):
   len2 = len(files2)
   i = j = 0
   while i < len1 and j < len2:
+    sys.stdout.write(str(i)+" "+str(j))
     if files1[i] == files2[j]:
+      print " - matched up"
       i+=1
       j+=1
       continue
     else:
+      print " - not matched"
       a = i
       b = j
+      i_end = i
+      j_end = j
       skipped1 = { files1[a]:a }
       skipped2 = { files2[b]:b }
+      found_it = False;
       # find the first file on either side that matches, load up the dict's
-      while a < len1 and b < len2:
+      while not found_it and a < len1 and b < len2:
         skipped1[files1[a]] = a
+        skipped2[files2[b]] = b
         if files1[a] in skipped2:
-          break
+          found_it = True
+          print "found "+files1[a]+" in arr2"
+          i_end = a
+          j_end = skipped2[files1[a]]
         else:
           a+=1
-        skipped2[files2[b]] = b
         if files2[b] in skipped1:
-          break
+          found_it = True
+          print "found "+files2[b]+" in arr1, index "+str(b)+" in arr2"
+          j_end = b
+          i_end = skipped1[files2[b]]
         else:
           b+=1
       # TODO handle case where the matches aren't found
       # then start again at i and j, and add each file to missing until you
       # hit the first one that's present in the other's skipped
-      x = i
-      while x <= a and files1[x] not in skipped2:
-        missing.append(files1[x])
-        del(files1[x])
-        x+=1
-      y = j
-      while y <= b files2[y] not in skipped1:
-        missing.append(files2[y])
-        del(files2[y])
-        y+=1
-      
+      i_tmp = i
+      j_tmp = j
+      i_delete = i_end - i
+      j_delete = j_end - j
+      while i_tmp < i_end:
+        missing1.append(files1[i_tmp])
+        del(files1[i_tmp])
+        len1 = len(files1)
+        i+=1
+      while j_tmp < j_end:
+        missing2.append(files2[j_tmp])
+        del(files2[j_tmp])
+        len2 = len(files2)
+        j_tmp+=1
+  
+  return (missing1, missing2)
 
 
 
