@@ -2,7 +2,8 @@
 # TODO:
 #   Print all the stats for files that don't match, not just the stat that
 #     doesn't match.
-#   Handle broken symlinks
+#   Handle symlinks
+#   Add option to not recurse (only examine files in root dir)
 #   Add option to specify precision required for matching date modified, if the
 #     CRC's still match.
 #     - default = to the second (round(timestamp, 0))
@@ -20,7 +21,7 @@ import random
 from optparse import OptionParser
 
 DEFAULT_CHUNK_SIZE = 1024**2
-OPT_DEFAULTS = {}
+OPT_DEFAULTS = {'tolerance':0, 'ignore_dates':False}
 USAGE = """Usage: %prog directory1 directory2
          %prog -p directory1 > directory1.txt"""
 DESCRIPTION = """"""
@@ -30,12 +31,26 @@ def get_options(defaults, usage, description='', epilog=''):
 
   parser = OptionParser(usage=usage, description=description, epilog=epilog)
 
+  parser.add_option('-t', '--date-tolerance', dest='tolerance',
+    default=defaults.get('tolerance'),
+    help='Amount of allowed discrepancy between modified dates. Can be given '
+    +'with units of seconds (s), minutes (m), hours (h), or days (d), e.g. '
+    +'"15m". Times without units are assumed to be seconds.')
+  parser.add_option('-d', '--ignore-dates', dest='ignore_dates',
+    action='store_const', const=not(defaults.get('ignore_dates')),
+    default=defaults.get('ignore_dates'),
+    help='Amount of allowed discrepancy between modified dates. Given in '
+    +'seconds.')
   parser.add_option('-p', '--print', dest='print_all', action='store_true',
     default=False,
     help='Print all the files in the directory to stdout, including the full '
     +'path, size, date modified, and CRC-32. This output can be saved to a '
     +'file, and compared to the output for another directory using sort and '
     +'diff.')
+  parser.add_option('-u', '--unix-time', dest='unix_time', action='store_true',
+    default=False,
+    help='When in print-all mode, print the unix timestamp (in seconds) '
+    +'instead of a human-readable date modified.')
 
   (options, arg_list) = parser.parse_args()
 
@@ -53,13 +68,16 @@ def main():
 
   (options, arguments) = get_options(OPT_DEFAULTS, USAGE, DESCRIPTION)
 
+  unix_time = options.unix_time
+  tolerance = parse_tolerance(options.tolerance, options.ignore_dates)
+
   # Print all the files and their attributes, then exit
   if options.print_all:
     rootdir = arguments.get('rootdir1', None)
     if rootdir is None:
       sys.stderr.write("Error: Must specify a starting directory to print.\n")
       sys.exit(1)
-    print_all(rootdir)
+    print_all(rootdir, unix_time)
     sys.exit(0)
 
   allequal = True
@@ -118,7 +136,7 @@ def main():
     for pair in zip(filenames1, filenames2):
       filepath1 = os.path.join(dir1, pair[0])
       filepath2 = os.path.join(dir2, pair[1])
-      (equal, messages) = equalfiles(filepath1, filepath2)
+      (equal, messages) = equalfiles(filepath1, filepath2, tolerance)
       if not equal:
         sys.stdout.write(messages)
         allequal = False
@@ -149,19 +167,33 @@ def main():
 
 ##### FUNCTIONS #####
 
-def totalsize(root_dir):
-  size = 0
-  files = 0
-  dirs = 0
-  for dirpath, dirnames, filenames in os.walk(root_dir):
-    files += len(filenames)
-    dirs += len(dirnames)
-    for filename in filenames:
-      filepath = os.path.join(dirpath, filename)
-      size += os.path.getsize(filepath)
-  return (size, files, dirs)
+def parse_tolerance(tolerance, ignore_dates):
+  """Returns tolerance converted to seconds, or False if problem with input"""
+  if ignore_dates:
+    return 2**16
+  try:
+    return int(tolerance)
+  except ValueError, e:
+    unit = tolerance[-1].lower()
+    try:
+      tolerance = int(tolerance[:-1])
+    except ValueError, e:
+      return False
+    if unit == 's':
+      return tolerance
+    elif unit == 'm':
+      return tolerance * 60
+    elif unit == 'h':
+      return tolerance * 60 * 60
+    elif unit == 'd':
+      return tolerance * 60 * 60 * 24
+    elif unit == 'y':
+      return tolerance * 60 * 60 * 24 * 365
+    else:
+      return False
 
-def equalfiles(file1, file2):
+
+def equalfiles(file1, file2, tolerance):
   """Compare two files by date modified, size, and CRC-32. If the
   files are the same, this returns True and an empty string. If they are not
   equal, this returns False and a string ready to print to the screen about how
@@ -191,19 +223,26 @@ def equalfiles(file1, file2):
     return (equal, message)
 
   # they have the same date modified?
-  if (int(os.path.getmtime(file1)) !=
-      int(os.path.getmtime(file2))):
-    message += ("\tDifferent date modified:\n"
-      +file1+":\n"+time.ctime(os.path.getmtime(file1))+" "
-      +"(CRC32 "+str(crc32(file1))+")\n"
-      +file2+":\n"+time.ctime(os.path.getmtime(file2))+" "
-      +"(CRC32 "+str(crc32(file2))+")\n")
+  date1 = int(os.path.getmtime(file1))
+  date2 = int(os.path.getmtime(file1))
+  if abs(date1 - date2) > tolerance:
+    message += "\tDifferent date modified "
+    if crc32(file1) == crc32(file2):
+      message += "but equal CRC-32's:\n"
+    else:
+      message += "and different CRC-32's:\n"
+    message += (
+      file1+":\n"+time.ctime(date1)+" (CRC32 "+str(crc32(file1))+")\n"+
+      file2+":\n"+time.ctime(date2)+" (CRC32 "+str(crc32(file2))+")\n"
+    )
     equal = False
     return (equal, message)
 
   # they have the same CRC?
   if crc32(file1) != crc32(file2):
-    message += ("\tDifferent CRC-32:\n"+file1+"\n"+file2+"\n")
+    message += ("\tDifferent CRC-32's:\n"
+      +file1+"("+time.ctime(date1)+")\n"
+      +file2+"("+time.ctime(date2)+")\n")
     equal = False
     return (equal, message)
 
@@ -222,19 +261,26 @@ def crc32(filename, chunk_size=DEFAULT_CHUNK_SIZE):
   return crc
 
 
-def print_all(rootdir):
+def print_all(rootdir, unix_time):
   """Walk all subdirectories and print stats on every file: the full path, the
   file size, last modified date, and CRC-32."""
 
   rootparent = os.path.dirname(rootdir)
+
   for (dirpath, dirnames, filenames) in os.walk(rootdir):
     for filename in filenames:
       filepath = os.path.join(dirpath, filename)
-      relfilepath = filepath[len(rootparent)+1:]
+      if rootparent == '':
+        relfilepath = filepath
+      else:
+        relfilepath = filepath[len(rootparent)+1:]
       size = str(os.path.getsize(filepath))
       mtime = os.path.getmtime(filepath)
-      datetime = time.ctime(mtime)
-      datetime = datetime[20:24]+datetime[3:19]#+mtime_dec[1:4]
+      if unix_time:
+        datetime = str(int(mtime))
+      else:
+        datetime = time.ctime(mtime)
+        datetime = datetime[20:24]+datetime[3:19]#+mtime_dec[1:4]
       print (relfilepath+"\t"+size+"\t"+datetime+"\t"+str(crc32(filepath)))
 
 
