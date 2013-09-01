@@ -51,6 +51,18 @@ def get_options(defaults, usage, description='', epilog=''):
     default=False,
     help='When in print-all mode, print the unix timestamp (in seconds) '
     +'instead of a human-readable date modified.')
+  parser.add_option('-a', '--ignore-dir1', dest='ignore1', action='store_true',
+    default=False,
+    help='Ignore files and directories missing from the first directory. When '
+    +'items are found to be missing from the first directory (according to the '
+    +'order in the arguments), do not print any message. Other discrepancies '
+    +'will still be reported.')
+  parser.add_option('-b', '--ignore-dir2', dest='ignore2', action='store_true',
+    default=False,
+    help='Ignore files and directories missing from the second directory. When '
+    +'items are found to be missing from the second directory (according to '
+    +'the order in the arguments), do not print any message. Other '
+    +'discrepancies will still be reported.')
 
   (options, arg_list) = parser.parse_args()
 
@@ -69,6 +81,8 @@ def main():
   (options, arguments) = get_options(OPT_DEFAULTS, USAGE, DESCRIPTION)
 
   unix_time = options.unix_time
+  ignore1 = options.ignore1
+  ignore2 = options.ignore2
   tolerance = parse_tolerance(options.tolerance, options.ignore_dates)
 
   # Print all the files and their attributes, then exit
@@ -107,13 +121,17 @@ def main():
     (missing1, missing2) = matchup(dirnames1, dirnames2)
 
     if len(missing1) > 0:
-      print "\tDirectories missing from "+dir2+":"
-      for dirname in missing1:
-        print dirname
+      allequal = False
+      if not ignore2:
+        print "\tDirectories missing from "+dir2+":"
+        for dirname in missing1:
+          print dirname
     if len(missing2) > 0:
-      print "\tDirectories missing from "+dir1+":"
-      for dirname in missing2:
-        print dirname
+      allequal = False
+      if not ignore1:
+        print "\tDirectories missing from "+dir1+":"
+        for dirname in missing2:
+          print dirname
 
 
     # check that the files are the same
@@ -122,15 +140,17 @@ def main():
 
     # print notice about missing files
     if len(missing1) > 0:
-      print "\tFiles missing from "+dir2+":"
-      for filename in missing1:
-        print filename
       allequal = False
+      if not ignore2:
+        print "\tFiles missing from "+dir2+":"
+        for filename in missing1:
+          print filename
     if len(missing2) > 0:
-      print "\tFiles missing from "+dir1+":"
-      for filename in missing2:
-        print filename
       allequal = False
+      if not ignore1:
+        print "\tFiles missing from "+dir1+":"
+        for filename in missing2:
+          print filename
 
     # the meat: compare files on size, date modified, CRC32.
     for pair in zip(filenames1, filenames2):
