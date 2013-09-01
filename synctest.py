@@ -244,7 +244,7 @@ def equalfiles(file1, file2, tolerance):
 
   # they have the same date modified?
   date1 = int(os.path.getmtime(file1))
-  date2 = int(os.path.getmtime(file1))
+  date2 = int(os.path.getmtime(file2))
   if abs(date1 - date2) > tolerance:
     message += "\tDifferent date modified "
     if crc32(file1) == crc32(file2):
