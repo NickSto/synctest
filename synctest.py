@@ -41,6 +41,11 @@ def get_options(defaults, usage, description='', epilog=''):
     default=defaults.get('ignore_dates'),
     help='Amount of allowed discrepancy between modified dates. Given in '
     +'seconds.')
+  parser.add_option('-c', '--no-checksum', dest='crc', action='store_false',
+    default=True,
+    help='Do not perform a checksum (CRC-32 currently), saving time on large '
+    +'files. The size in bytes will still be checked, which will catch most '
+    +'changes in contents.')
   parser.add_option('-p', '--print', dest='print_all', action='store_true',
     default=False,
     help='Print all the files in the directory to stdout, including the full '
@@ -80,6 +85,7 @@ def main():
 
   (options, arguments) = get_options(OPT_DEFAULTS, USAGE, DESCRIPTION)
 
+  crc = options.crc
   unix_time = options.unix_time
   ignore1 = options.ignore1
   ignore2 = options.ignore2
@@ -91,7 +97,7 @@ def main():
     if rootdir is None:
       sys.stderr.write("Error: Must specify a starting directory to print.\n")
       sys.exit(1)
-    print_all(rootdir, unix_time)
+    print_all(rootdir, unix_time, crc)
     sys.exit(0)
 
   allequal = True
@@ -156,7 +162,7 @@ def main():
     for pair in zip(filenames1, filenames2):
       filepath1 = os.path.join(dir1, pair[0])
       filepath2 = os.path.join(dir2, pair[1])
-      (equal, messages) = equalfiles(filepath1, filepath2, tolerance)
+      (equal, messages) = equalfiles(filepath1, filepath2, tolerance, crc)
       if not equal:
         sys.stdout.write(messages)
         allequal = False
@@ -213,7 +219,7 @@ def parse_tolerance(tolerance, ignore_dates):
       return False
 
 
-def equalfiles(file1, file2, tolerance):
+def equalfiles(file1, file2, tolerance, crc):
   """Compare two files by date modified, size, and CRC-32. If the
   files are the same, this returns True and an empty string. If they are not
   equal, this returns False and a string ready to print to the screen about how
@@ -232,37 +238,47 @@ def equalfiles(file1, file2, tolerance):
     equal = False
     return (equal, message)
 
+  # gather statistics
+  size1 = os.path.getsize(file1)
+  size2 = os.path.getsize(file2)
+  date1 = int(os.path.getmtime(file1))
+  date2 = int(os.path.getmtime(file2))
+  if crc:
+    crc1 = crc32(file1)
+    crc2 = crc32(file2)
+
   # they are the same size?
-  if os.path.getsize(file1) != os.path.getsize(file2):
+  if size1 != size2:
     message += ("\tDifferent file sizes:\n"
-      +file1+":\n"+str(os.path.getsize(file1))+" bytes "
-      +"("+time.ctime(os.path.getmtime(file1))+")\n"  # todo: convert to human-
-      +file2+":\n"+str(os.path.getsize(file2))+" bytes "
-      +"("+time.ctime(os.path.getmtime(file2))+")\n")  # readable file size
+      # todo: convert to human-readable file size
+      +file1+":\n"+str(size1)+" bytes ("+time.ctime(date1)+")\n"
+      +file2+":\n"+str(size2)+" bytes ("+time.ctime(date2)+")\n")
     equal = False
     return (equal, message)
 
   # they have the same date modified?
-  date1 = int(os.path.getmtime(file1))
-  date2 = int(os.path.getmtime(file2))
   if abs(date1 - date2) > tolerance:
-    message += "\tDifferent date modified "
-    if crc32(file1) == crc32(file2):
-      message += "but equal CRC-32's:\n"
-    else:
-      message += "and different CRC-32's:\n"
-    message += (
-      file1+":\n"+time.ctime(date1)+" (CRC32 "+str(crc32(file1))+")\n"+
-      file2+":\n"+time.ctime(date2)+" (CRC32 "+str(crc32(file2))+")\n"
-    )
+    message += "\tDifferent date modified"
+    if crc:
+      if crc1 == crc2:
+        message += " but equal CRC-32's"
+      else:
+        message += " and different CRC-32's"
+    message += ":\n"+file1+":\n"+time.ctime(date1)
+    if crc:
+      message += " (CRC32 "+str(crc1)+")"
+    message += "\n"+file2+":\n"+time.ctime(date2)
+    if crc:
+      message += " (CRC32 "+str(crc2)+")"
+    message += "\n"
     equal = False
     return (equal, message)
 
   # they have the same CRC?
-  if crc32(file1) != crc32(file2):
-    message += ("\tDifferent CRC-32's:\n"
-      +file1+"("+time.ctime(date1)+")\n"
-      +file2+"("+time.ctime(date2)+")\n")
+  if crc and crc1 != crc2:
+    message += ("\tSame size and date modified, but different CRC-32's:\n"
+      +file1+" ("+str(size1)+" bytes)\n"
+      +file2+" ("+str(size2)+" bytes)\n")
     equal = False
     return (equal, message)
 
@@ -281,7 +297,7 @@ def crc32(filename, chunk_size=DEFAULT_CHUNK_SIZE):
   return crc
 
 
-def print_all(rootdir, unix_time):
+def print_all(rootdir, unix_time, crc):
   """Walk all subdirectories and print stats on every file: the full path, the
   file size, last modified date, and CRC-32."""
 
@@ -301,7 +317,10 @@ def print_all(rootdir, unix_time):
       else:
         datetime = time.ctime(mtime)
         datetime = datetime[20:24]+datetime[3:19]#+mtime_dec[1:4]
-      print (relfilepath+"\t"+size+"\t"+datetime+"\t"+str(crc32(filepath)))
+      sys.stdout.write(relfilepath+"\t"+size+"\t"+datetime+"\t")
+      if crc:
+        sys.stdout.write(str(crc32(filepath)))
+      print ''
 
 
 # sort and compare the two lists of filenames, note any that don't have a match
