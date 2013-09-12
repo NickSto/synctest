@@ -4,13 +4,6 @@
 #     doesn't match.
 #   Handle symlinks
 #   Add option to not recurse (only examine files in root dir)
-#   Add option to specify precision required for matching date modified, if the
-#     CRC's still match.
-#     - default = to the second (round(timestamp, 0))
-#     - and add a separate flag for "I don't care about the date modified if
-#       the CRC's match"
-#       - can be implemented by just rounding to a precision higher than the
-#         number of digits in the maximum unix timestamp (round(timestamp, -10))
 
 import os
 import sys
@@ -39,8 +32,7 @@ def get_options(defaults, usage, description='', epilog=''):
   parser.add_option('-d', '--ignore-dates', dest='ignore_dates',
     action='store_const', const=not(defaults.get('ignore_dates')),
     default=defaults.get('ignore_dates'),
-    help='Amount of allowed discrepancy between modified dates. Given in '
-    +'seconds.')
+    help='Ignore discrepancies between modified dates.')
   parser.add_option('-c', '--no-checksum', dest='crc', action='store_false',
     default=True,
     help='Do not perform a checksum (CRC-32 currently), saving time on large '
@@ -196,7 +188,7 @@ def main():
 def parse_tolerance(tolerance, ignore_dates):
   """Returns tolerance converted to seconds, or False if problem with input"""
   if ignore_dates:
-    return 2**16
+    return 2**31  # maximum 32-bit unix timestamp
   try:
     return int(tolerance)
   except ValueError, e:
