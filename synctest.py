@@ -2,7 +2,6 @@
 # TODO:
 #   Print all the stats for files that don't match, not just the stat that
 #     doesn't match.
-#   Handle symlinks
 #   Add option to not recurse (only examine files in root dir)
 
 import os
@@ -16,8 +15,8 @@ from optparse import OptionParser
 DEFAULT_CHUNK_SIZE = 1024**2
 OPT_DEFAULTS = {'tolerance':0, 'ignore_dates':False}
 USAGE = """Usage: %prog directory1 directory2
-         %prog -p directory1 > directory1.txt"""
-DESCRIPTION = """"""
+       %prog -p directory1 > directory1.txt"""
+DESCRIPTION = """Check the differences between the contents of two directories."""  
 
 def get_options(defaults, usage, description='', epilog=''):
   """Get options, print usage text."""
@@ -220,13 +219,29 @@ def equalfiles(file1, file2, tolerance, crc):
   message = ""
 
   # they both exist?
-  if not (os.path.exists(file1) and os.path.exists(file2)):
-    if not os.path.exists(file1):
+  if not (os.path.lexists(file1) and os.path.lexists(file2)):
+    if not os.path.lexists(file1):
       message += ("Internal error: "+file1+" returned by os.walk() but not "
-        +"reported as existing by os.path.exists().\n")
-    if not os.path.exists(file2):
+        +"reported as existing by os.path.lexists().\n")
+    if not os.path.lexists(file2):
       message += ("Internal error: "+file2+" returned by os.walk() but not "
-        +"reported as existing by os.path.exists().\n")
+        +"reported as existing by os.path.lexists().\n")
+    equal = False
+    return (equal, message)
+
+  # broken symbolic link?
+  if os.path.islink(file1) and not os.path.exists(file1):
+    message += ("\tBroken symbolic link:\n"
+      +file1+":\n -> "+os.readlink(file1)+" (MISSING)\n"
+      +file2+":\n"+str(os.path.getsize(file2))+" bytes ("
+      +time.ctime(os.path.getmtime(file2))+")\n")
+    equal = False
+    return (equal, message)
+  if os.path.islink(file2) and not os.path.exists(file2):
+    message += ("\tBroken symbolic link:\n"
+      +file1+":\n"+str(os.path.getsize(file1))+" bytes ("
+      +time.ctime(os.path.getmtime(file1))+")\n"
+      +file2+":\n -> "+os.readlink(file2)+" (MISSING)\n")
     equal = False
     return (equal, message)
 
