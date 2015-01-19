@@ -229,21 +229,34 @@ def equalfiles(file1, file2, tolerance, crc):
     equal = False
     return (equal, message)
 
-  # broken symbolic link?
-  if os.path.islink(file1) and not os.path.exists(file1):
-    message += ("\tBroken symbolic link:\n"
-      +file1+":\n -> "+os.readlink(file1)+" (MISSING)\n"
-      +file2+":\n"+str(os.path.getsize(file2))+" bytes ("
-      +time.ctime(os.path.getmtime(file2))+")\n")
-    equal = False
-    return (equal, message)
-  if os.path.islink(file2) and not os.path.exists(file2):
-    message += ("\tBroken symbolic link:\n"
-      +file1+":\n"+str(os.path.getsize(file1))+" bytes ("
-      +time.ctime(os.path.getmtime(file1))+")\n"
-      +file2+":\n -> "+os.readlink(file2)+" (MISSING)\n")
-    equal = False
-    return (equal, message)
+  # symlinks?
+  if os.path.islink(file1) or os.path.islink(file2):
+    if not os.path.islink(file1):
+      message += ("\tOne file is a symlink:\n"
+        +file1+":\n"+str(os.path.getsize(file1))+" bytes ("
+        +time.ctime(os.path.getmtime(file1))+")\n"
+        +file2+":\n -> "+os.readlink(file2)+"\n")
+      equal = False
+      return (equal, message)
+    elif not os.path.islink(file2):
+      message += ("\tOne file is a symlink:\n"
+        +file1+":\n -> "+os.readlink(file1)+"\n"
+        +file2+":\n"+str(os.path.getsize(file2))+" bytes ("
+        +time.ctime(os.path.getmtime(file2))+")\n")
+      equal = False
+      return (equal, message)
+    else:
+      target1 = os.readlink(file1)
+      target2 = os.readlink(file2)
+      if target1 == target2:
+        equal = True
+        return (equal, message)
+      else:
+        message += ("\tSymlinks with different targets:\n"
+          +file1+":\n -> "+target1+"\n"
+          +file2+":\n -> "+target2+"\n")
+        equal = False
+        return (equal, message)
 
   # gather statistics
   size1 = os.path.getsize(file1)
