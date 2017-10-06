@@ -9,7 +9,7 @@ import sys
 import time
 import math
 import zlib
-import random
+import errno
 from optparse import OptionParser
 
 DEFAULT_CHUNK_SIZE = 1024**2
@@ -330,8 +330,13 @@ def print_all(rootdir, unix_time, crc):
         relfilepath = filepath
       else:
         relfilepath = filepath[len(rootparent)+1:]
-      size = str(os.path.getsize(filepath))
-      mtime = os.path.getmtime(filepath)
+      broken_link = os.path.islink(filepath) and not os.path.exists(filepath)
+      if broken_link:
+        size = '0'
+        mtime = 0
+      else:
+        size = str(os.path.getsize(filepath))
+        mtime = os.path.getmtime(filepath)
       if unix_time:
         datetime = str(int(mtime))
       else:
@@ -339,7 +344,10 @@ def print_all(rootdir, unix_time, crc):
         datetime = datetime[20:24]+datetime[3:19]#+mtime_dec[1:4]
       sys.stdout.write(relfilepath+"\t"+size+"\t"+datetime+"\t")
       if crc:
-        sys.stdout.write(str(crc32(filepath)))
+        if broken_link:
+          sys.stdout.write('0')
+        else:
+          sys.stdout.write(str(crc32(filepath)))
       print ''
 
 
