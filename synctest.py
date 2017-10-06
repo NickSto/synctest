@@ -11,25 +11,21 @@ import zlib
 from optparse import OptionParser
 
 DEFAULT_CHUNK_SIZE = 1024**2
-OPT_DEFAULTS = {'tolerance':0, 'ignore_dates':False}
 USAGE = """Usage: %prog directory1 directory2
        %prog -p directory1 > directory1.txt"""
 DESCRIPTION = """Check the differences between the contents of two directories."""
 
 
-def get_options(defaults, usage, description='', epilog=''):
+def get_options(usage, description='', epilog=''):
   """Get options, print usage text."""
 
   parser = OptionParser(usage=usage, description=description, epilog=epilog)
 
-  parser.add_option('-t', '--date-tolerance', dest='tolerance',
-    default=defaults.get('tolerance'),
+  parser.add_option('-t', '--date-tolerance', dest='tolerance', default=0,
     help='Amount of allowed discrepancy between modified dates. Can be given with units of seconds '
          '(s), minutes (m), hours (h), or days (d), e.g. "15m". Times without units are assumed to '
          'be seconds.')
-  parser.add_option('-d', '--ignore-dates', dest='ignore_dates',
-    action='store_const', const=not(defaults.get('ignore_dates')),
-    default=defaults.get('ignore_dates'),
+  parser.add_option('-d', '--ignore-dates', action='store_true',
     help='Ignore discrepancies between modified dates.')
   parser.add_option('-c', '--no-checksum', dest='crc', action='store_false',
     default=True,
@@ -40,17 +36,14 @@ def get_options(defaults, usage, description='', epilog=''):
     help='Print all the files in the directory to stdout, including the full path, size, date '
          'modified, and CRC-32. This output can be saved to a file, and compared to the output for '
          'another directory using sort and diff.')
-  parser.add_option('-u', '--unix-time', dest='unix_time', action='store_true',
-    default=False,
+  parser.add_option('-u', '--unix-time', action='store_true',
     help='When in print-all mode, print the unix timestamp (in seconds) instead of a human-'
          'readable date modified.')
   parser.add_option('-a', '--ignore-dir1', dest='ignore1', action='store_true',
-    default=False,
     help='Ignore files and directories missing from the first directory. When items are found to '
          'be missing from the first directory (according to the order in the arguments), do not '
          'print any message. Other discrepancies will still be reported.')
   parser.add_option('-b', '--ignore-dir2', dest='ignore2', action='store_true',
-    default=False,
     help='Ignore files and directories missing from the second directory. When items are found to '
          'be missing from the second directory (according to the order in the arguments), do not '
          'print any message. Other discrepancies will still be reported.')
@@ -69,7 +62,7 @@ def get_options(defaults, usage, description='', epilog=''):
 
 def main():
 
-  (options, arguments) = get_options(OPT_DEFAULTS, USAGE, DESCRIPTION)
+  (options, arguments) = get_options(USAGE, DESCRIPTION)
 
   crc = options.crc
   unix_time = options.unix_time
