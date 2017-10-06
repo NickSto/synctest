@@ -84,8 +84,7 @@ def main():
   if options.print_all:
     rootdir = arguments.get('rootdir1', None)
     if rootdir is None:
-      sys.stderr.write("Error: Must specify a starting directory to print.\n")
-      sys.exit(1)
+      fail("Error: Must specify a starting directory to print.")
     print_all(rootdir, unix_time, crc)
     sys.exit(0)
 
@@ -94,14 +93,11 @@ def main():
   rootdir1 = arguments.get('rootdir1', None)
   rootdir2 = arguments.get('rootdir2', None)
   if rootdir1 is None or rootdir2 is None:
-    sys.stderr.write("Error: Must specify two directories to compare.\n")
-    sys.exit(1)
+    fail("Error: Must specify two directories to compare.")
   if not os.path.exists(rootdir1):
-    sys.stderr.write("Error: Directory not accessible: "+rootdir1+"\n")
-    sys.exit(1)
+    fail("Error: Directory not accessible: "+rootdir1)
   if not os.path.exists(rootdir2):
-    sys.stderr.write("Error: Directory not accessible: "+rootdir1+"\n")
-    sys.exit(1)
+    fail("Error: Directory not accessible: "+rootdir1)
 
   walker1 = os.walk(rootdir1)
   walker2 = os.walk(rootdir2)
@@ -168,13 +164,9 @@ def main():
     # if one finishes before the other, they're unsynced.
     # call walker.next() repeatedly and print the extra directories.
     if done1 and not done2:
-      sys.stderr.write("Error: walker for "+rootdir1+" finished before the "
-        +"one for "+rootdir2+"\n")
-      sys.exit(1)
+      fail("Error: walker for "+rootdir1+" finished before the one for "+rootdir2)
     elif done2 and not done1:
-      sys.stderr.write("Error: walker for "+rootdir2+" finished before the "
-        +"one for "+rootdir1+"\n")
-      sys.exit(1)
+      fail("Error: walker for "+rootdir2+" finished before the one for "+rootdir1)
 
   if allequal:
     print "They're equal!"
@@ -446,6 +438,12 @@ def matchup(files1, files2):
     len1 = len(files1)
 
   return (missing1, missing2)
+
+
+def fail(message):
+  sys.stderr.write(message+'\n')
+  sys.exit(1)
+
 
 if __name__ == "__main__":
   main()
