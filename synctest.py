@@ -7,9 +7,7 @@
 import os
 import sys
 import time
-import math
 import zlib
-import errno
 from optparse import OptionParser
 
 DEFAULT_CHUNK_SIZE = 1024**2
@@ -160,11 +158,11 @@ def main():
 
     try:
       (dir1,dirnames1,filenames1) = walker1.next()
-    except StopIteration, si:
+    except StopIteration:
       done1 = True
     try:
       (dir2,dirnames2,filenames2) = walker2.next()
-    except StopIteration, si:
+    except StopIteration:
       done2 = True
 
     # if one finishes before the other, they're unsynced.
@@ -190,11 +188,11 @@ def parse_tolerance(tolerance, ignore_dates):
     return 2**31  # maximum 32-bit unix timestamp
   try:
     return int(tolerance)
-  except ValueError, e:
+  except ValueError:
     unit = tolerance[-1].lower()
     try:
       tolerance = int(tolerance[:-1])
-    except ValueError, e:
+    except ValueError:
       return False
     if unit == 's':
       return tolerance
