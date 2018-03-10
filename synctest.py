@@ -201,21 +201,21 @@ def equalfiles(file1, file2, tolerance, crc):
   # they both exist?
   if not (os.path.lexists(file1) and os.path.lexists(file2)):
     if not os.path.lexists(file1):
-      message += ("Internal error: "+file1+" returned by os.walk() but not "
-        +"reported as existing by os.path.lexists().\n")
+      message += ("Internal error: "+file1+"returned by os.walk() but not "
+                  "reported as existing by os.path.lexists().\n")
     if not os.path.lexists(file2):
       message += ("Internal error: "+file2+" returned by os.walk() but not "
-        +"reported as existing by os.path.lexists().\n")
+                  "reported as existing by os.path.lexists().\n")
     equal = False
     return (equal, message)
 
   # symlinks?
   if os.path.islink(file1) or os.path.islink(file2):
     if not os.path.islink(file1):
-      message += ("\tOne file is a symlink:\n"
-        +file1+":\n"+str(os.path.getsize(file1))+" bytes ("
-        +time.ctime(os.path.getmtime(file1))+")\n"
-        +file2+":\n -> "+os.readlink(file2)+"\n")
+      file1_size = os.path.getsize(file1)
+      file1_modified = time.ctime(os.path.getmtime(file1))
+      message += ("\tOne file is a symlink:\n{0}:\n{1} bytes ({2})\n{3}:\n -> {}\n"
+                  .format(file1, file1_size, file1_modified, file2, os.readlink(file2)))
       equal = False
       return (equal, message)
     elif not os.path.islink(file2):
