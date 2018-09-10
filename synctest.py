@@ -3,7 +3,7 @@
 #   Print all the stats for files that don't match, not just the stat that
 #     doesn't match.
 #   Add option to not recurse (only examine files in root dir)
-
+from __future__ import print_function
 import os
 import sys
 import time
@@ -104,15 +104,15 @@ def main():
     if len(missing1) > 0:
       allequal = False
       if not ignore2:
-        print "\tDirectories missing from "+dir2+":"
+        print("\tDirectories missing from "+dir2+":")
         for dirname in missing1:
-          print dirname
+          print(dirname)
     if len(missing2) > 0:
       allequal = False
       if not ignore1:
-        print "\tDirectories missing from "+dir1+":"
+        print("\tDirectories missing from "+dir1+":")
         for dirname in missing2:
-          print dirname
+          print(dirname)
 
 
     # check that the files are the same
@@ -123,15 +123,15 @@ def main():
     if len(missing1) > 0:
       allequal = False
       if not ignore2:
-        print "\tFiles missing from "+dir2+":"
+        print("\tFiles missing from "+dir2+":")
         for filename in missing1:
-          print filename
+          print(filename)
     if len(missing2) > 0:
       allequal = False
       if not ignore1:
-        print "\tFiles missing from "+dir1+":"
+        print("\tFiles missing from "+dir1+":")
         for filename in missing2:
-          print filename
+          print(filename)
 
     # the meat: compare files on size, date modified, CRC32.
     for pair in zip(filenames1, filenames2):
@@ -159,7 +159,7 @@ def main():
       fail("Error: walker for "+rootdir2+" finished before the one for "+rootdir1)
 
   if allequal:
-    print "They're equal!"
+    print("They're equal!")
 
 
 ##### FUNCTIONS #####
@@ -328,7 +328,7 @@ def print_all(rootdir, unix_time, crc):
           sys.stdout.write('0')
         else:
           sys.stdout.write(str(crc32(filepath)))
-      print ''
+      print()
 
 
 # sort and compare the two lists of filenames, note any that don't have a match
