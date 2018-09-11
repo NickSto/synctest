@@ -90,8 +90,8 @@ def main():
     fail("Error: Directory not accessible: "+rootdir1)
 
   first_loop = True
-  walker1 = os.walk(rootdir1)
-  walker2 = os.walk(rootdir2)
+  walker1 = os.walk(rootdir1, followlinks=True)
+  walker2 = os.walk(rootdir2, followlinks=True)
   done1 = False
   done2 = False
   (dir1, dirnames1, filenames1) = walker1.next()
@@ -174,6 +174,29 @@ def main():
 
 ##### FUNCTIONS #####
 
+def print_zipped(list1, list2):
+  longest1 = longest2 = 0
+  for item in list1:
+    longest1 = max(longest1, len(str(item)))
+  for item in list2:
+    longest2 = max(longest2, len(str(item)))
+  longest1 = max(4, min(47, longest1))
+  longest2 = max(4, min(47, longest2))
+  format_str = '  {:%ds}    {:%ds}' % (longest1, longest2)
+  i = 0
+  while i < len(list1) or i < len(list2):
+    if i < len(list1):
+      item1 = list1[i]
+    else:
+      item1 = ''
+    if i < len(list2):
+      item2 = list2[i]
+    else:
+      item2 = ''
+    print(format_str.format(item1, item2))
+    i += 1
+
+
 def parse_tolerance(tolerance, ignore_dates):
   """Returns tolerance converted to seconds, or False if problem with input"""
   if ignore_dates:
@@ -231,7 +254,7 @@ def equalfiles(file1, file2, tolerance, crc):
       if dirs:
         message += ("\tOne directory is a symlink:\n"
                     "{0}:\n"
-                    "  real directory\n"
+                    "  Real directory\n"
                     "{1}:\n"
                     "  -> {2}\n".format(file1, file2, os.readlink(file2)))
       else:
@@ -251,7 +274,7 @@ def equalfiles(file1, file2, tolerance, crc):
                     "{0}:\n"
                     "  -> {1}\n"
                     "{2}:\n"
-                    "  real directory\n".format(file1, os.readlink(file1), file2))
+                    "  Real directory\n".format(file1, os.readlink(file1), file2))
       else:
         file2_size = os.path.getsize(file2)
         file2_modified = time.ctime(os.path.getmtime(file2))
