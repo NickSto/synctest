@@ -89,6 +89,7 @@ def main():
   if not os.path.exists(rootdir2):
     fail("Error: Directory not accessible: "+rootdir1)
 
+  first_loop = True
   walker1 = os.walk(rootdir1)
   walker2 = os.walk(rootdir2)
   done1 = False
@@ -96,6 +97,9 @@ def main():
   (dir1, dirnames1, filenames1) = walker1.next()
   (dir2, dirnames2, filenames2) = walker2.next()
   while not done1 and not done2:
+    if os.path.basename(dir1) != os.path.basename(dir2) and not first_loop:
+      fail('Error: Comparison got unsynced. Began comparing {!r} vs {!r}.'.format(dir1, dir2))
+    first_loop = False
 
     # check that the subdirectories are the same
 
@@ -113,7 +117,13 @@ def main():
         print("\tDirectories missing from "+dir1+":")
         for dirname in missing2:
           print(dirname)
-
+    for dirname1, dirname2 in zip(dirnames1, dirnames2):
+      dirpath1 = os.path.join(dir1, dirname1)
+      dirpath2 = os.path.join(dir2, dirname2)
+      (equal, messages) = equalfiles(dirpath1, dirpath2, tolerance, crc)
+      if not equal:
+        sys.stdout.write(messages)
+        allequal = False
 
     # check that the files are the same
 
@@ -191,8 +201,9 @@ def parse_tolerance(tolerance, ignore_dates):
 
 
 def equalfiles(file1, file2, tolerance, crc):
-  """Compare two files by date modified, size, and CRC-32. If the
-  files are the same, this returns True and an empty string. If they are not
+  """Compare two paths by symlink status, date modified, size, and CRC-32.
+  Or, if they're directories, just check that they're equal symlinks or not.
+  If the files are the same, this returns True and an empty string. If they are not
   equal, this returns False and a string ready to print to the screen about how
   they differ."""
   equal = True
@@ -201,7 +212,7 @@ def equalfiles(file1, file2, tolerance, crc):
   # they both exist?
   if not (os.path.lexists(file1) and os.path.lexists(file2)):
     if not os.path.lexists(file1):
-      message += ("Internal error: "+file1+"returned by os.walk() but not "
+      message += ("Internal error: "+file1+" returned by os.walk() but not "
                   "reported as existing by os.path.lexists().\n")
     if not os.path.lexists(file2):
       message += ("Internal error: "+file2+" returned by os.walk() but not "
@@ -209,20 +220,47 @@ def equalfiles(file1, file2, tolerance, crc):
     equal = False
     return (equal, message)
 
+  dirs = os.path.isdir(file1) or os.path.isdir(file2)
+  if dirs:
+    assert os.path.isdir(file1) and os.path.isdir(file2), (file1, file2)
+
   # symlinks?
   if os.path.islink(file1) or os.path.islink(file2):
+    #TODO: Collapse duplicate code.
     if not os.path.islink(file1):
-      file1_size = os.path.getsize(file1)
-      file1_modified = time.ctime(os.path.getmtime(file1))
-      message += ("\tOne file is a symlink:\n{0}:\n{1} bytes ({2})\n{3}:\n -> {}\n"
-                  .format(file1, file1_size, file1_modified, file2, os.readlink(file2)))
+      if dirs:
+        message += ("\tOne directory is a symlink:\n"
+                    "{0}:\n"
+                    "  real directory\n"
+                    "{1}:\n"
+                    "  -> {2}\n".format(file1, file2, os.readlink(file2)))
+      else:
+        file1_size = os.path.getsize(file1)
+        file1_modified = time.ctime(os.path.getmtime(file1))
+        message += ("\tOne file is a symlink:\n"
+                    "{0}:\n"
+                    "  {1} bytes ({2})\n"
+                    "{3}:\n"
+                    "  -> {4}\n"
+                    .format(file1, file1_size, file1_modified, file2, os.readlink(file2)))
       equal = False
       return (equal, message)
     elif not os.path.islink(file2):
-      message += ("\tOne file is a symlink:\n"
-        +file1+":\n -> "+os.readlink(file1)+"\n"
-        +file2+":\n"+str(os.path.getsize(file2))+" bytes ("
-        +time.ctime(os.path.getmtime(file2))+")\n")
+      if dirs:
+        message += ("\tOne directory is a symlink:\n"
+                    "{0}:\n"
+                    "  -> {1}\n"
+                    "{2}:\n"
+                    "  real directory\n".format(file1, os.readlink(file1), file2))
+      else:
+        file2_size = os.path.getsize(file2)
+        file2_modified = time.ctime(os.path.getmtime(file2))
+        message += ("\tOne file is a symlink:\n"
+                    "{0}:\n"
+                    "  -> {1}\n"
+                    "{2}:\n"
+                    "  {3} bytes ({4})\n"
+                    .format(file1, os.readlink(file1), file2, file2_size, file2_modified))
       equal = False
       return (equal, message)
     else:
@@ -237,6 +275,9 @@ def equalfiles(file1, file2, tolerance, crc):
           +file2+":\n -> "+target2+"\n")
         equal = False
         return (equal, message)
+
+  if dirs:
+    return (equal, message)
 
   # gather statistics
   size1 = os.path.getsize(file1)
