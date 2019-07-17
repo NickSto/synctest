@@ -70,14 +70,27 @@ def main(argv):
 
   logging.basicConfig(stream=args.log, level=args.volume, format='%(message)s')
 
+  check_dir_arg(args.dir1)
+  check_dir_arg(args.dir2)
+
+  total_diffs = 0
   for diff_type, path_type, diff1, diff2 in compare(
       args.dir1, args.dir2, args.ignore_dir1, args.ignore_dir2, crc=args.crc,
       date_tolerance=args.date_tolerance, follow_links=args.follow_links,
       die_on_error=args.die_on_error
     ):
-    print('Difference: '+diff_type)
-    print(diff1)
-    print(diff2)
+    total_diffs += 1
+    print(format_human(diff_type, path_type, diff1, diff2))
+
+  if total_diffs == 0:
+    print('They\'re equal!')
+
+
+def check_dir_arg(path):
+  if not path.exists():
+    fail('Error: Argument not an existing directory: {!r}'.format(str(path)))
+  elif not path.is_dir():
+    fail('Error: Argument not a directory: {!r}'.format(str(path)))
 
 
 def compare(root1, root2, ignore1, ignore2, crc='last', date_tolerance=0, follow_links=False,
@@ -86,14 +99,24 @@ def compare(root1, root2, ignore1, ignore2, crc='last', date_tolerance=0, follow
   walker2 = os.walk(root2, followlinks=follow_links)
   first_loop = True
   while True:
+    # Iterate the walkers.
+    #TODO: Handle issue where a walker can't access a directory to go into it.
+    #      In that case, it skips the directory and goes to the next one, getting the walkers out of
+    #      sync. You can give a handler to the `onerror` argument, and see the exception that way.
+    #      Maybe use that to detect when an error occurs, then advance the other walker as many times
+    #      as you saw exceptions.
     try:
       walker_paths1, walker_paths2 = step_walkers(walker1, walker2, first_loop)
     except StopIteration:
       break
     first_loop = False
+    # Extract and transform the path data from the walkers.
+    # Note: `sync_up_walker_paths()` alters its arguments, editing the dirnames lists returned by
+    # the walkers so they're equal. This affects the walkers' traversal to keep them in sync.
     dir1 = walker_paths1[0]
     dir2 = walker_paths2[0]
     paths1, paths2, missing1, missing2 = sync_up_walker_paths(walker_paths1, walker_paths2)
+    # Check for missing files/directories.
     for diff in get_missings(missing1, missing2, ignore1, ignore2):
       yield diff
     # Compare each path.
@@ -144,8 +167,8 @@ def sync_up_walker_paths(walker_paths1, walker_paths2):
   filenames1.sort()
   filenames2.sort()
   missing_files1, missing_files2 = matchup(filenames1, filenames2)
-  missing1 = missing_dirs1 + missing_files1
-  missing2 = missing_dirs2 + missing_files2
+  missing1 = [dir1/missing for missing in missing_dirs1 + missing_files1]
+  missing2 = [dir2/missing for missing in missing_dirs2 + missing_files2]
   paths1 = dirnames1 + filenames1
   paths2 = dirnames2 + filenames2
   return paths1, paths2, missing1, missing2
@@ -178,7 +201,7 @@ def compare_paths(path1, path2, date_tolerance=0, crc='last'):
   diff2 = {'path':path2}
   # Are they both files/directories/links?
   path_type1 = get_path_type(path1)
-  path_type2 = get_path_type(path1)
+  path_type2 = get_path_type(path2)
   diff1['type'] = path_type1
   diff2['type'] = path_type2
   if path_type1 != path_type2:
@@ -287,6 +310,13 @@ def parse_tolerance(tolerance_str):
       fail('Error: --date-tolerance string {!r} invalid.'.format(tolerance_str))
 
 
+def format_human(diff_type, path_type, diff1, diff2):
+  output = 'Difference: '+diff_type+'\n'
+  output += 'path1: {}\n'.format(diff1['path'])
+  output += 'path2: {}\n'.format(diff2['path'])
+  return output
+
+
 def matchup(files1, files2):
   """Compare two lists, removing any elements that don't have a match in the other.
   Warning: This alters the input lists. They should be equal afterward.
@@ -390,7 +420,7 @@ def matchup(files1, files2):
   return missing1, missing2
 
 
-def SyncError(Exception):
+class SyncError(Exception):
   def __init__(self, message):
     self.message = message
     self.args = (message,)
