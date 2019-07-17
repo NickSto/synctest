@@ -281,13 +281,17 @@ def get_crc32(path, chunk_size=DEFAULT_CHUNK_SIZE):
   """Read a file and compute its CRC-32. Only reads chunk_size bytes into memory at a time.
   This may raise an IOError if there's a problem reading the file."""
   crc = 0
-  with open(path, 'rb') as file:
-    chunk = file.read(chunk_size)
-    while chunk:
-      # Note: A change in Python 3.0 means the crc returned by this is incompatible with those from
-      # earlier versions.
-      crc = zlib.crc32(chunk, crc)
+  try:
+    with path.open('rb') as file:
       chunk = file.read(chunk_size)
+      while chunk:
+        # Note: A change in Python 3.0 means the crc returned by this is incompatible with those from
+        # earlier versions.
+        crc = zlib.crc32(chunk, crc)
+        chunk = file.read(chunk_size)
+  except KeyboardInterrupt:
+    logging.warning('Interrupted while getting crc32 of {}'.format(path))
+    raise
   return crc
 
 
