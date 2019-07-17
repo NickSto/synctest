@@ -15,13 +15,37 @@ def make_argparser():
   parser = argparse.ArgumentParser(description=DESCRIPTION)
   parser.add_argument('dir1', type=pathlib.Path)
   parser.add_argument('dir2', type=pathlib.Path)
-  parser.add_argument('-t', '--date-tolerance', default=0, type=parse_tolerance,
+  parser.add_argument('-t', '--tsv', dest='format', action='store_const', const='tsv', default='human',
+    help='Print in computer-readable tab-delimited format instead of human readable text. The '
+         'output is one line per difference. The columns are:\n'
+         '1.  Relative path of the file that\'s different (path starting at dir1/dir2 args).\n'
+         '2.  Difference type:\n'
+         '  "missing1": path not found in dir1.\n'
+         '  "missing2": path not found in dir2.\n'
+         '  "type":     path is a different type (file/directory/link/etc) in dir1 & dir2.\n'
+         '  "target":   path is a link, but has different targets in dir1 and dir2.\n'
+         '  "size":     path is a file with different sizes.\n'
+         '  "modified": path has a different date modified in dir1 and dir2.\n'
+         '  "crc":      path has a different crc32 in dir1 and dir2.\n'
+         '3.  Type of path in dir1 ("file", "dir", "link", "block", "char", "socket",\n'
+         '    "fifo", or "special").\n'
+         '4.  Type of path in dir2.\n'
+         '5.  File size of path in dir1.\n'
+         '6.  File size of path in dir2.\n'
+         '7.  Date modified of path in dir1 (unix timestamp).\n'
+         '8.  Date modified of path in dir2 (unix timestamp).\n'
+         '9.  crc32 of path in dir1.\n'
+         '10. crc32 of path in dir2.\n'
+         '11. Target of link in dir1.\n'
+         '12. Target of link in dir2.\n'
+         'For all columns, "?" means the value was not measured or is not applicable.')
+  parser.add_argument('-d', '--ignore-dates', dest='date_tolerance', action='store_const',
+    default=0, const=60*60*24*365*1000,  # 1000 years
+    help='Ignore discrepancies between dates modified.')
+  parser.add_argument('-D', '--date-tolerance', default=0, type=parse_tolerance,
     help='Amount of allowed discrepancy between modified dates. Can be given with units of seconds '
       '(s), minutes (m), hours (h), or days (d), e.g. "15m". Times without units are assumed to be '
       'seconds.')
-  parser.add_argument('-d', '--ignore-dates', dest='date_tolerance', action='store_const',
-    const=60*60*24*365*1000,  # 1000 years
-    help='Ignore discrepancies between dates modified.')
   parser.add_argument('-c', '--no-checksum', dest='crc', default='last',
     action='store_const', const='none',
     help='Do not perform a checksum (CRC-32 currently), saving time on large files. The size in '
@@ -59,7 +83,7 @@ def make_argparser():
   volume.add_argument('-q', '--quiet', dest='volume', action='store_const', const=logging.CRITICAL,
     default=logging.WARNING)
   volume.add_argument('-v', '--verbose', dest='volume', action='store_const', const=logging.INFO)
-  volume.add_argument('-D', '--debug', dest='volume', action='store_const', const=logging.DEBUG)
+  volume.add_argument('--debug', dest='volume', action='store_const', const=logging.DEBUG)
   return parser
 
 
@@ -80,9 +104,12 @@ def main(argv):
       die_on_error=args.die_on_error
     ):
     total_diffs += 1
-    print(format_human(diff_type, path_type, diff1, diff2))
+    if args.format == 'tsv':
+      print(format_tsv(args.dir1, args.dir2, diff_type, path_type, diff1, diff2))
+    elif args.format == 'human':
+      print(format_human(diff_type, path_type, diff1, diff2))
 
-  if total_diffs == 0:
+  if args.format == 'human' and total_diffs == 0:
     print('They\'re equal!')
 
 
@@ -189,10 +216,10 @@ def pathize(args):
 def get_missings(missing1, missing2, ignore1, ignore2):
   if not ignore2:
     for missing in missing1:
-      yield 'missing', get_path_type(missing), {'path':missing}, {'path':None}
+      yield 'missing2', get_path_type(missing), {'path':missing}, {'path':None}
   if not ignore1:
     for missing in missing2:
-      yield 'missing', get_path_type(missing), {'path':None}, {'path':missing}
+      yield 'missing1', get_path_type(missing), {'path':None}, {'path':missing}
 
 
 def compare_paths(path1, path2, date_tolerance=0, crc='last'):
@@ -315,6 +342,36 @@ def format_human(diff_type, path_type, diff1, diff2):
   output += 'path1: {}\n'.format(diff1['path'])
   output += 'path2: {}\n'.format(diff2['path'])
   return output
+
+
+def format_tsv(root1, root2, diff_type, path_type, diff1, diff2):
+  rel_path1 = remove_root(root1, diff1['path'])
+  rel_path2 = remove_root(root2, diff2['path'])
+  if rel_path1 is None:
+    rel_path = rel_path2
+  elif rel_path2 is None:
+    rel_path = rel_path1
+  else:
+    assert rel_path1 == rel_path2, (rel_path1, rel_path2)
+    rel_path = rel_path1
+  fields = [rel_path, diff_type]
+  field_names = ('type', 'size', 'modified', 'crc', 'target')
+  for field_name in field_names:
+    fields.append(str(diff1.get(field_name, '?')))
+    fields.append(str(diff2.get(field_name, '?')))
+  return '\t'.join(fields)
+
+
+def remove_root(root_path, full_path):
+  if full_path is None:
+    return None
+  root = str(root_path)
+  full = str(full_path)
+  assert full[:len(root)] == root, (root, full)
+  if root.endswith('/'):
+    return full[len(root):]
+  else:
+    return full[len(root)+1:]
 
 
 def matchup(files1, files2):
