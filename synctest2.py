@@ -5,6 +5,7 @@ import os
 import pathlib
 import sys
 import zlib
+import utillib.simplewrap
 assert sys.version_info.major >= 3, 'Python 3 required'
 
 DEFAULT_CHUNK_SIZE = 1024**2
@@ -12,63 +13,66 @@ DESCRIPTION = """Check the differences between the contents of two directories."
 
 
 def make_argparser():
-  parser = argparse.ArgumentParser(description=DESCRIPTION)
+  wrapper = utillib.simplewrap.Wrapper(width_mod=-24)
+  wrap = wrapper.wrap
+  parser = argparse.ArgumentParser(description=DESCRIPTION,
+                                   formatter_class=argparse.RawTextHelpFormatter)
   parser.add_argument('dir1', type=pathlib.Path)
   parser.add_argument('dir2', type=pathlib.Path)
   parser.add_argument('-t', '--tsv', dest='format', action='store_const', const='tsv', default='human',
-    help='Print in computer-readable tab-delimited format instead of human readable text. The '
-         'output is one line per difference. The columns are:\n'
-         '1.  Relative path of the file that\'s different (path starting at dir1/dir2 args).\n'
-         '2.  Difference type:\n'
-         '  "missing1": path not found in dir1.\n'
-         '  "missing2": path not found in dir2.\n'
-         '  "type":     path is a different type (file/directory/link/etc) in dir1 & dir2.\n'
-         '  "target":   path is a link, but has different targets in dir1 and dir2.\n'
-         '  "size":     path is a file with different sizes.\n'
-         '  "modified": path has a different date modified in dir1 and dir2.\n'
-         '  "crc":      path has a different crc32 in dir1 and dir2.\n'
-         '3.  Type of path in dir1 ("file", "dir", "link", "block", "char", "socket",\n'
-         '    "fifo", or "special").\n'
-         '4.  Type of path in dir2.\n'
+    help=wrap('Print in computer-readable tab-delimited format instead of human readable text. The '
+         'output is one line per difference. The columns are:')+'\n'+
+         wrap('1.  Relative path of the file that\'s different (path starting at dir1/dir2 args).\n'
+         '2.  Difference type:', lspace=4, indent=-4)+'\n'+
+         wrap('    "missing1": path not found in dir1.\n'
+         '    "missing2": path not found in dir2.\n'
+         '    "type":     path is a different type (file/directory/link/etc) in dir1 and dir2.\n'
+         '    "target":   path is a link, but has different targets in dir1 and dir2.\n'
+         '    "size":     path is a file with different sizes.\n'
+         '    "modified": path has a different date modified in dir1 and dir2.\n'
+         '    "crc":      path has a different crc32 in dir1 and dir2.', lspace=16, indent=-16)+'\n'+
+         wrap('3.  Type of path in dir1 ("file", "dir", "link", "block", "char", "socket", "fifo", or '
+              '"special").\n'
+         '4.  Same for dir2.\n'
          '5.  File size of path in dir1.\n'
-         '6.  File size of path in dir2.\n'
+         '6.  Same for dir2.\n'
          '7.  Date modified of path in dir1 (unix timestamp).\n'
-         '8.  Date modified of path in dir2 (unix timestamp).\n'
+         '8.  Same for dir2.\n'
          '9.  crc32 of path in dir1.\n'
-         '10. crc32 of path in dir2.\n'
+         '10. Same for dir2.\n'
          '11. Target of link in dir1.\n'
-         '12. Target of link in dir2.\n'
-         'For all columns, "?" means the value was not measured or is not applicable.')
+         '12. Same for dir2.', lspace=4, indent=-4)+'\n'+
+         wrap('For all columns, "?" means the value was not measured or is not applicable.'))
   parser.add_argument('-d', '--ignore-dates', dest='date_tolerance', action='store_const',
     default=0, const=60*60*24*365*1000,  # 1000 years
-    help='Ignore discrepancies between dates modified.')
+    help=wrap('Ignore discrepancies between dates modified.'))
   parser.add_argument('-D', '--date-tolerance', default=0, type=parse_tolerance,
-    help='Amount of allowed discrepancy between modified dates. Can be given with units of seconds '
-      '(s), minutes (m), hours (h), or days (d), e.g. "15m". Times without units are assumed to be '
-      'seconds.')
+    help=wrap('Amount of allowed discrepancy between modified dates. Can be given with units of '
+      'seconds (s), minutes (m), hours (h), or days (d), e.g. "15m". Times without units are '
+      'assumed to be seconds.'))
   parser.add_argument('-c', '--no-checksum', dest='crc', default='last',
     action='store_const', const='none',
-    help='Do not perform a checksum (CRC-32 currently), saving time on large files. The size in '
-      'bytes will still be checked, which will catch most changes in contents.')
+    help=wrap('Do not perform a checksum (CRC-32 currently), saving time on large files. The size '
+      'in bytes will still be checked, which will catch most changes in contents.'))
   parser.add_argument('-C', '--checksum-if-date-diff', dest='crc', action='store_const', const='date',
-    help='Compare the checksums even if the date modifieds are different.')
+    help=wrap('Compare the checksums even if the date modifieds are different.'))
   parser.add_argument('-1', '-a', '--ignore-dir1', action='store_true',
-    help='Ignore files and directories missing from the first directory. When items are found to '
-      'be missing from the first directory (according to the order in the arguments), do not '
-      'print any message. Other discrepancies will still be reported.')
+    help=wrap('Ignore files and directories missing from the first directory. When items are '
+      'found to be missing from the first directory (according to the order in the arguments), do '
+      'not print any message. Other discrepancies will still be reported.'))
   parser.add_argument('-2', '-b', '--ignore-dir2', action='store_true',
-    help='Ignore files and directories missing from the second directory. When items are found to '
-      'be missing from the second directory (according to the order in the arguments), do not '
-      'print any message. Other discrepancies will still be reported.')
+    help=wrap('Ignore files and directories missing from the second directory. When items are '
+      'found to be missing from the second directory (according to the order in the arguments), do '
+      'not print any message. Other discrepancies will still be reported.'))
   parser.add_argument('-f', '--follow-links', action='store_true',
-    help='Follow symbolic links while traversing the filesystem. This will not affect how links '
-      'are treated when comparing paths. They will always be considered on their own, as a special'
-      'file type, without reference to their targets.')
+    help=wrap('Follow symbolic links while traversing the filesystem. This will not affect how '
+      'links are treated when comparing paths. They will always be considered on their own, as a '
+      'special file type, without reference to their targets.'))
   parser.add_argument('-X', '--die-on-error', action='store_true',
-    help="Don't ignore errors that prevent obtaining an accurate result. Normally, if there's an "
-      "issue accessing a path (permission issue, misc I/O issue), a warning will be logged and it "
-      'will move on. If this option is set, that will be treated as a fatal error and the program '
-      'will die.')
+    help=wrap("Don't ignore errors that prevent obtaining an accurate result. Normally, if there's "
+      "an issue accessing a path (permission issue, misc I/O issue), a warning will be logged and "
+      'it will move on. If this option is set, that will be treated as a fatal error and the '
+      'program will die.'))
   #TODO:
   # parser.add_argument('-p', '--print-all', action='store_true', default=False,
   #   help='Print all the files in the directory to stdout, including the full path, size, date '
@@ -78,7 +82,8 @@ def make_argparser():
   #   help='When in print-all mode, print the unix timestamp (in seconds) instead of a human-'
   #        'readable date modified.')
   parser.add_argument('-l', '--log', type=argparse.FileType('w'), default=sys.stderr,
-    help='Print log messages to this file instead of to stderr. Warning: Will overwrite the file.')
+    help=wrap('Print log messages to this file instead of to stderr. Warning: Will overwrite the '
+      'file.'))
   volume = parser.add_mutually_exclusive_group()
   volume.add_argument('-q', '--quiet', dest='volume', action='store_const', const=logging.CRITICAL,
     default=logging.WARNING)
