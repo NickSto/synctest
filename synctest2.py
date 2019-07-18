@@ -103,7 +103,7 @@ def main(argv):
   check_dir_arg(args.dir2)
 
   total_diffs = 0
-  for diff_type, path_type, diff1, diff2 in compare(
+  for diff_type, path_type, diff1, diff2 in recursive_compare(
       args.dir1, args.dir2, args.ignore_dir1, args.ignore_dir2, crc=args.crc,
       date_tolerance=args.date_tolerance, follow_links=args.follow_links,
       die_on_error=args.die_on_error
@@ -125,18 +125,23 @@ def check_dir_arg(path):
     fail('Error: Argument not a directory: {!r}'.format(str(path)))
 
 
-def compare(root1, root2, ignore1, ignore2, crc='last', date_tolerance=0, follow_links=False,
-            die_on_error=False):
-  walker1 = os.walk(root1, followlinks=follow_links)
-  walker2 = os.walk(root2, followlinks=follow_links)
+def recursive_compare(root1, root2, ignore1, ignore2, crc='last', date_tolerance=0,
+                      follow_links=False, die_on_error=False):
+  walker1 = os.walk(root1, followlinks=follow_links, onerror=log_error)
+  walker2 = os.walk(root2, followlinks=follow_links, onerror=log_error)
   first_loop = True
   while True:
     # Iterate the walkers.
-    #TODO: Handle issue where a walker can't access a directory to go into it.
-    #      In that case, it skips the directory and goes to the next one, getting the walkers out of
-    #      sync. You can give a handler to the `onerror` argument, and see the exception that way.
-    #      Maybe use that to detect when an error occurs, then advance the other walker as many times
-    #      as you saw exceptions.
+    #TODO: Handle issues where one walker will go into a directory that the other can't.
+    #      In this case, the one that can't will silently proceed to the next one, de-syncing them.
+    #      Situations that can cause this:
+    #      1. Permissions or some other I/O error prevents access to one of the directories.
+    #      2. One path is a directory and the other is a link (and followlinks is False).
+    #      You can give a handler to the `onerror` argument, and in the first situation the handler
+    #      will be called, with the exception as its argument. Use the handler to detect this
+    #      event, then advance the other walker as many times as you saw exceptions.
+    #      But the second situation won't be caught this way. And what happens if you get a series
+    #      of these in a row, mixing the two cases?
     try:
       walker_paths1, walker_paths2 = step_walkers(walker1, walker2, first_loop)
     except StopIteration:
@@ -381,6 +386,10 @@ def remove_root(root_path, full_path):
     return full[len(root):]
   else:
     return full[len(root)+1:]
+
+
+def log_error(error):
+  logging.error('Error: {} on {!r}.'.format(type(error).__name__, error.filename))
 
 
 def matchup(files1, files2):
