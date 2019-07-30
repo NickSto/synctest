@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import collections
+import gzip
 import logging
 import os
 import pathlib
@@ -8,6 +10,7 @@ import zlib
 import utillib.simplewrap
 assert sys.version_info.major >= 3, 'Python 3 required'
 
+NULL_STR = '.'
 DEFAULT_CHUNK_SIZE = 1024**2
 DESCRIPTION = """Check the differences between the contents of two directories."""
 
@@ -17,21 +20,28 @@ def make_argparser():
   wrap = wrapper.wrap
   parser = argparse.ArgumentParser(description=DESCRIPTION,
                                    formatter_class=argparse.RawTextHelpFormatter)
-  parser.add_argument('dir1', type=pathlib.Path)
-  parser.add_argument('dir2', type=pathlib.Path)
+  parser.add_argument('path1', type=pathlib.Path,
+    help='The first directory to compare. You can also give the path to a file of metadata '
+      'produced by file-metadata.py, run on a directory or set of directories. In this case, '
+      'though, the startpath has to be the same in both cases.')
+  parser.add_argument('path2', type=pathlib.Path,
+    help='The second directory to compare.')
   parser.add_argument('-t', '--tsv', dest='format', action='store_const', const='tsv', default='human',
     help=wrap('Print in computer-readable tab-delimited format instead of human readable text. The '
          'output is one line per difference. The columns are:')+'\n'+
-         wrap('1.  Relative path of the file that\'s different (path starting at dir1/dir2 args).\n'
+         wrap(
+         '1.  Relative path of the file that\'s different (path starting at dir1/dir2 args).\n'
          '2.  Difference type:', lspace=4, indent=-4)+'\n'+
-         wrap('    "missing1": path not found in dir1.\n'
+         wrap(
+         '    "missing1": path not found in dir1.\n'
          '    "missing2": path not found in dir2.\n'
          '    "type":     path is a different type (file/directory/link/etc) in dir1 and dir2.\n'
          '    "target":   path is a link, but has different targets in dir1 and dir2.\n'
          '    "size":     path is a file with different sizes.\n'
          '    "modified": path has a different date modified in dir1 and dir2.\n'
          '    "crc":      path has a different crc32 in dir1 and dir2.', lspace=16, indent=-16)+'\n'+
-         wrap('3.  Type of path in dir1 ("file", "dir", "link", "block", "char", "socket", "fifo", or '
+         wrap(
+         '3.  Type of path in dir1 ("file", "dir", "link", "block", "char", "socket", "fifo", or '
               '"special").\n'
          '4.  Same for dir2.\n'
          '5.  File size of path in dir1.\n'
@@ -99,18 +109,26 @@ def main(argv):
 
   logging.basicConfig(stream=args.log, level=args.volume, format='%(message)s')
 
-  check_dir_arg(args.dir1)
-  check_dir_arg(args.dir2)
+  path_type = check_path_args(args.path1, args.path2)
 
-  total_diffs = 0
-  for diff_type, path_type, diff1, diff2 in recursive_compare(
-      args.dir1, args.dir2, args.ignore_dir1, args.ignore_dir2, crc=args.crc,
+  if path_type == 'file':
+    survey1, meta1 = read_survey(args.path1)
+    diff_generator = compare_surveys(survey1, args.path2, meta1)
+    root1 = root2 = meta1['startpath']
+  elif path_type == 'dir':
+    diff_generator = recursive_compare(
+      args.path1, args.path2, args.ignore_dir1, args.ignore_dir2, crc=args.crc,
       date_tolerance=args.date_tolerance, follow_links=args.follow_links,
       die_on_error=args.die_on_error
-    ):
+    )
+    root1 = args.path1
+    root2 = args.path2
+
+  total_diffs = 0
+  for diff_type, path_type, diff1, diff2 in diff_generator:
     total_diffs += 1
     if args.format == 'tsv':
-      print(format_tsv(args.dir1, args.dir2, diff_type, path_type, diff1, diff2))
+      print(format_tsv(root1, root2, diff_type, path_type, diff1, diff2))
     elif args.format == 'human':
       print(format_human(diff_type, path_type, diff1, diff2))
 
@@ -118,11 +136,22 @@ def main(argv):
     print('They\'re equal!')
 
 
-def check_dir_arg(path):
-  if not path.exists():
-    fail('Error: Argument not an existing directory: {!r}'.format(str(path)))
-  elif not path.is_dir():
-    fail('Error: Argument not a directory: {!r}'.format(str(path)))
+def check_path_args(*paths):
+  failed = False
+  path_types = [get_path_type(path) for path in paths]
+  for path, path_type in zip(paths, path_types):
+    if path_type == 'nonexistent':
+      logging.critical('Error: Argument not an existing file or directory: {!r}'.format(str(path)))
+      failed = True
+    elif path_type not in ('dir', 'file'):
+      logging.critical('Error: Argument not a file or directory: {!r}'.format(str(path)))
+      failed = True
+  if failed:
+    fail()
+  if path_types[0] != path_types[1]:
+    fail('Error: Both arguments must be directories, or both must be files.\n'
+         'Found a {} and {} instead.'.format(path_types[0], path_types[1]))
+  return path_types[0]
 
 
 def recursive_compare(root1, root2, ignore1, ignore2, crc='last', date_tolerance=0,
@@ -503,8 +532,120 @@ class SyncError(Exception):
     return '{}: {}'.format(type(self).__name__, self.message)
 
 
-def fail(message):
-  logging.critical(message)
+########## "Static analysis" ##########
+
+Metadata = collections.namedtuple('Metadata', ('modified', 'size', 'crc', 'type', 'error'))
+
+def read_survey(survey_path):
+  survey_metadata = {}
+  survey = {}
+  with open_path(survey_path) as survey_file:
+    for line_raw in survey_file:
+      if line_raw.startswith('#'):
+        if line_raw.startswith('##'):
+          parse_survey_metaline(line_raw, survey_metadata)
+      else:
+        path_str, metadata = parse_survey_line(line_raw)
+        survey[path_str] = metadata
+  return survey, survey_metadata
+
+
+def parse_survey_metaline(line_raw, metadata):
+  fields = line_raw[2:].rstrip('\r\n').split('=')
+  assert len(fields) >= 2, line_raw
+  key = fields[0]
+  value = '='.join(fields[1:])
+  if key == 'root':
+    try:
+      metadata[key].append(value)
+    except KeyError:
+      metadata[key] = [value]
+  else:
+    metadata[key] = value
+
+
+def compare_surveys(survey1, survey2_path, survey1_meta):
+  # Difference from compare_paths(): this can't check if link targets are equal, since that isn't
+  # recorded by file-metadata.py.
+  survey2_meta = {}
+  unmatched = set(survey1.keys())
+  with open_path(survey2_path) as survey2_file:
+    for line_raw in survey2_file:
+      if line_raw.startswith('#'):
+        if line_raw.startswith('##'):
+          parse_survey_metaline(line_raw, survey2_meta)
+          # Check that the startpaths of the two surveys are the same.
+          #TODO: Allow surveys with different startpaths.
+          #      Should be able to just remove the startpath from the beginning of each column 1
+          #      path (if it's present) and then I think you can compare the result between surveys.
+          if 'startpath' in survey1_meta and 'startpath' in survey2_meta:
+            if survey1_meta['startpath'] != survey2_meta['startpath']:
+              fail('Error: startpath of both surveys must be equal: {!r} != {!r}'
+                   .format(survey1_meta['startpath'], survey2_meta['startpath']))
+        continue
+      path_str, metadata2 = parse_survey_line(line_raw)
+      diffs = []
+      if path_str in survey1:
+        metadata1 = survey1[path_str]
+        diff_type = 'equal'
+        for attr in 'type', 'size', 'modified', 'crc':
+          if getattr(metadata1, attr) != getattr(metadata2, attr):
+            if not (attr == 'modified' and metadata1.type == metadata2.type == 'dir'):
+              diff_type = attr
+              break
+        diff1 = metadata_to_diff(metadata1, path_str)
+        diff2 = metadata_to_diff(metadata2, path_str)
+        if metadata1.type == metadata2.type:
+          path_type = metadata1.type
+        else:
+          path_type = 'mixed'
+        if diff_type != 'equal':
+          yield diff_type, path_type, diff1, diff2
+        unmatched.remove(path_str)
+      else:
+        yield 'missing1', metadata2.type, {'path':None}, metadata_to_diff(metadata2, path_str)
+  for path_str in unmatched:
+    metadata1 = survey1[path_str]
+    yield 'missing2', metadata1.type, metadata_to_diff(metadata1, path_str), {'path':None}
+
+
+def parse_survey_line(line_raw):
+  fields = line_raw.rstrip('\r\n').split('\t')
+  path, human_time, modified_str, size_str, crc_str, file_type, error = fields
+  modified = size = crc = None
+  if modified_str != NULL_STR:
+    modified = int(modified_str)
+  if size_str != NULL_STR:
+    size = int(size_str)
+  if crc_str != NULL_STR:
+    crc = int(crc_str, 16)
+  if file_type == NULL_STR:
+    file_type = None
+  if error == NULL_STR:
+    error = None
+  return fields[0], Metadata(modified, size, crc, file_type, error)
+
+
+def metadata_to_diff(metadata, path):
+  return {
+    'path':pathlib.Path(path),
+    'type':metadata.type,
+    'size':metadata.size,
+    'modified':metadata.modified,
+    'crc':metadata.crc,
+  }
+
+
+def open_path(path):
+  if path.name.endswith('.gz'):
+    return gzip.open(path, mode='rt')
+  else:
+    return path.open('rt')
+
+
+def fail(message=None):
+  if message is not None:
+    logging.critical(message)
   if __name__ == '__main__':
     sys.exit(1)
   else:
