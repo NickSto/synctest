@@ -23,7 +23,8 @@ def make_argparser():
   parser.add_argument('path1', type=pathlib.Path,
     help='The first directory to compare. You can also give the path to a file of metadata '
       'produced by file-metadata.py, run on a directory or set of directories. In this case, '
-      'though, the startpath has to be the same in both cases.')
+      'though, either both surveys must have the same startpath or all the root paths must be '
+      'absolute.')
   parser.add_argument('path2', type=pathlib.Path,
     help='The second directory to compare.')
   parser.add_argument('-t', '--tsv', dest='format', action='store_const', const='tsv', default='human',
@@ -567,22 +568,30 @@ def parse_survey_metaline(line_raw, metadata):
 def compare_surveys(survey1, survey2_path, survey1_meta):
   # Difference from compare_paths(): this can't check if link targets are equal, since that isn't
   # recorded by file-metadata.py.
+  in_header = True
   survey2_meta = {}
   unmatched = set(survey1.keys())
   with open_path(survey2_path) as survey2_file:
     for line_raw in survey2_file:
       if line_raw.startswith('#'):
+        if not in_header:
+          fail('Error: Header line detected separated from rest of header:\n  {!r}'.format(line_raw))
         if line_raw.startswith('##'):
           parse_survey_metaline(line_raw, survey2_meta)
-          # Check that the startpaths of the two surveys are the same.
-          #TODO: Allow surveys with different startpaths.
-          #      Should be able to just remove the startpath from the beginning of each column 1
-          #      path (if it's present) and then I think you can compare the result between surveys.
-          if 'startpath' in survey1_meta and 'startpath' in survey2_meta:
-            if survey1_meta['startpath'] != survey2_meta['startpath']:
-              fail('Error: startpath of both surveys must be equal: {!r} != {!r}'
-                   .format(survey1_meta['startpath'], survey2_meta['startpath']))
         continue
+      elif in_header:
+        # Should just past the end of the headers now.
+        #TODO: Check that the versions of both surveys is > 2.1.
+        # Check that the startpaths of the two surveys are the same.
+        #TODO: Allow surveys with different startpaths.
+        #      Should be able to just remove the startpath from the beginning of each column 1
+        #      path (if it's present) and then I think you can compare the result between surveys.
+        if survey1_meta['startpath'] != survey2_meta['startpath']:
+          for path_str in survey1_meta['root'] + survey2_meta['root']:
+            if not os.path.isabs(path_str):
+              fail('Error: startpath of both surveys is not equal ({!r} != {!r}) and not all root '
+                   'paths are absolute.'.format(survey1_meta['startpath'], survey2_meta['startpath']))
+        in_header = False
       path_str, metadata2 = parse_survey_line(line_raw)
       diffs = []
       if path_str in survey1:
