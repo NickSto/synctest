@@ -411,6 +411,8 @@ def remove_root(root_path, full_path):
     return None
   root = str(root_path)
   full = str(full_path)
+  if root == '/':
+    return full
   assert full[:len(root)] == root, (root, full)
   if root.endswith('/'):
     return full[len(root):]
