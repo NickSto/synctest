@@ -10,7 +10,9 @@ import zlib
 import utillib.simplewrap
 assert sys.version_info.major >= 3, 'Python 3 required'
 
-NULL_STR = '.'
+TSV_FIELDS = ('type', 'size', 'modified', 'crc', 'target')
+TSV_NULL_STR = '?'
+SURVEY_NULL_STR = '.'
 DEFAULT_CHUNK_SIZE = 1024**2
 DESCRIPTION = """Check the differences between the contents of two directories."""
 
@@ -25,7 +27,7 @@ def make_argparser():
       'produced by file-metadata.py, run on a directory or set of directories. In this case, '
       'though, either both surveys must have the same startpath or all the root paths must be '
       'absolute.')
-  parser.add_argument('path2', type=pathlib.Path,
+  parser.add_argument('path2', type=pathlib.Path, nargs='?',
     help='The second directory to compare.')
   parser.add_argument('-t', '--tsv', dest='format', action='store_const', const='tsv', default='human',
     help=wrap('Print in computer-readable tab-delimited format instead of human readable text. The '
@@ -92,6 +94,9 @@ def make_argparser():
   # parser.add_argument('-u', '--unix-time', action='store_true',
   #   help='When in print-all mode, print the unix timestamp (in seconds) instead of a human-'
   #        'readable date modified.')
+  parser.add_argument('-T', '--convert-tsv', action='store_true',
+    help=wrap('Just convert tsv output of this script into the human-readable format. Input is '
+      "read from the first argument (give '-' to read from stdin)."))
   parser.add_argument('-l', '--log', type=argparse.FileType('w'), default=sys.stderr,
     help=wrap('Print log messages to this file instead of to stderr. Warning: Will overwrite the '
       'file.'))
@@ -109,6 +114,16 @@ def main(argv):
   args = parser.parse_args(argv[1:])
 
   logging.basicConfig(stream=args.log, level=args.volume, format='%(message)s')
+
+  if not args.path2 and not args.convert_tsv:
+    fail('Error: Two positional arguments are required (path1 and path2).')
+  if args.convert_tsv and args.format != 'human':
+    fail('Error: --convert-tsv only works with human-readable output format.')
+
+  if args.convert_tsv:
+    for line in convert_tsv(args.path1):
+      print(line)
+    return 0
 
   path_type = check_path_args(args.path1, args.path2)
 
@@ -382,9 +397,14 @@ def parse_tolerance(tolerance_str):
 
 
 def format_human(diff_type, path_type, diff1, diff2):
-  output = 'Difference: '+diff_type+'\n'
-  output += 'path1: {}\n'.format(diff1['path'])
-  output += 'path2: {}\n'.format(diff2['path'])
+  output = f'Difference: {diff_type}\n'
+  if diff1['path'] == diff2['path'] and diff1['path'] is not None:
+    output += f'path: {diff1["path"]}\n'
+  else:
+    if diff1['path'] is not None:
+      output += f'path1: {diff1["path"]}\n'
+    if diff2['path'] is not None:
+      output += f'path2: {diff2["path"]}\n'
   return output
 
 
@@ -399,10 +419,9 @@ def format_tsv(root1, root2, diff_type, path_type, diff1, diff2):
     assert rel_path1 == rel_path2, (rel_path1, rel_path2)
     rel_path = rel_path1
   fields = [rel_path, diff_type]
-  field_names = ('type', 'size', 'modified', 'crc', 'target')
-  for field_name in field_names:
-    fields.append(str(diff1.get(field_name, '?')))
-    fields.append(str(diff2.get(field_name, '?')))
+  for field_name in TSV_FIELDS:
+    fields.append(str(diff1.get(field_name, TSV_NULL_STR)))
+    fields.append(str(diff2.get(field_name, TSV_NULL_STR)))
   return '\t'.join(fields)
 
 
@@ -418,6 +437,53 @@ def remove_root(root_path, full_path):
     return full[len(root):]
   else:
     return full[len(root)+1:]
+
+
+def parse_tsv_line(line_raw):
+  diff1 = {}
+  diff2 = {}
+  fields = line_raw.rstrip('\r\n').split('\t')
+  assert len(fields) == 2 + 2*len(TSV_FIELDS)
+  rel_path = fields[0]
+  diff_type = fields[1]
+  diff1['path'] = diff2['path'] = rel_path
+  if diff_type == 'missing1':
+    diff1['path'] = None
+  elif diff_type == 'missing2':
+    diff2['path'] = None
+  for i, value_str in enumerate(fields[2:]):
+    field_name = TSV_FIELDS[i//2]
+    if i % 2 == 0:
+      diff = diff1
+    else:
+      diff = diff2
+    if value_str == TSV_NULL_STR or (value_str == 'None' and field_name != 'target'):
+      diff[field_name] = None
+    else:
+      if field_name in ('size', 'modified'):
+        value = int(value_str)
+      else:
+        value = value_str
+      diff[field_name] = value
+  if diff1['type'] == diff2['type']:
+    path_type = diff1['type']
+  elif diff1['type'] is None:
+    path_type = diff2['type']
+  elif diff2['type'] is None:
+    path_type = diff1['type']
+  else:
+    path_type = 'mixed'
+  return diff_type, path_type, diff1, diff2
+
+
+def convert_tsv(tsv_path):
+  if str(tsv_path) == '-':
+    tsv_file = sys.stdin
+  else:
+    tsv_file = tsv_path.open('rt')
+  for line_raw in tsv_file:
+    diff_type, path_type, diff1, diff2 = parse_tsv_line(line_raw)
+    yield format_human(diff_type, path_type, diff1, diff2)
 
 
 def log_error(error):
@@ -570,6 +636,8 @@ def parse_survey_metaline(line_raw, metadata):
 def compare_surveys(survey1, survey2_path, survey1_meta):
   # Difference from compare_paths(): this can't check if link targets are equal, since that isn't
   # recorded by file-metadata.py.
+  #TODO: If a directory is missing, just list that difference and not all the individual files it
+  #      contains as well.
   in_header = True
   survey2_meta = {}
   unmatched = set(survey1.keys())
@@ -624,15 +692,15 @@ def parse_survey_line(line_raw):
   fields = line_raw.rstrip('\r\n').split('\t')
   path, human_time, modified_str, size_str, crc_str, file_type, error = fields
   modified = size = crc = None
-  if modified_str != NULL_STR:
+  if modified_str != SURVEY_NULL_STR:
     modified = int(modified_str)
-  if size_str != NULL_STR:
+  if size_str != SURVEY_NULL_STR:
     size = int(size_str)
-  if crc_str != NULL_STR:
+  if crc_str != SURVEY_NULL_STR:
     crc = int(crc_str, 16)
-  if file_type == NULL_STR:
+  if file_type == SURVEY_NULL_STR:
     file_type = None
-  if error == NULL_STR:
+  if error == SURVEY_NULL_STR:
     error = None
   return fields[0], Metadata(modified, size, crc, file_type, error)
 
