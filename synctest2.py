@@ -154,13 +154,20 @@ def main(argv):
 
 def check_path_args(*paths):
   failed = False
-  path_types = [get_path_type(path) for path in paths]
+  path_types = []
+  for path in paths:
+    path_type = get_path_type(path, followlinks=True)
+    # A fifo could be a process substitution argument that we can read like a file.
+    # Proceed like it's a regular file until proven otherwise.
+    if path_type == 'fifo':
+      path_type = 'file'
+    path_types.append(path_type)
   for path, path_type in zip(paths, path_types):
     if path_type == 'nonexistent':
-      logging.critical('Error: Argument not an existing file or directory: {!r}'.format(str(path)))
+      logging.critical(f'Error: Argument not an existing file or directory: {str(path)!r}')
       failed = True
     elif path_type not in ('dir', 'file'):
-      logging.critical('Error: Argument not a file or directory: {!r}'.format(str(path)))
+      logging.critical(f'Error: Argument is {path_type!r}, not a file or directory: {str(path)!r}')
       failed = True
   if failed:
     fail()
@@ -345,12 +352,12 @@ def get_crc32(path, chunk_size=DEFAULT_CHUNK_SIZE):
   return crc
 
 
-def get_path_type(path):
+def get_path_type(path, followlinks=False):
   """Check what type the file is and return a string of the type.
   If the file doesn't exist, this returns 'nonexistent'.
   If there's an error accessing the path, this may raise an IOError."""
   try:
-    if path.is_symlink():
+    if path.is_symlink() and not followlinks:
       return 'link'
     elif path.is_file():
       return 'file'
@@ -609,13 +616,16 @@ def read_survey(survey_path):
   survey_metadata = {}
   survey = {}
   with open_path(survey_path) as survey_file:
-    for line_raw in survey_file:
-      if line_raw.startswith('#'):
-        if line_raw.startswith('##'):
-          parse_survey_metaline(line_raw, survey_metadata)
-      else:
-        path_str, metadata = parse_survey_line(line_raw)
-        survey[path_str] = metadata
+    try:
+      for line_raw in survey_file:
+        if line_raw.startswith('#'):
+          if line_raw.startswith('##'):
+            parse_survey_metaline(line_raw, survey_metadata)
+        else:
+          path_str, metadata = parse_survey_line(line_raw)
+          survey[path_str] = metadata
+    except EOFError:
+      pass
   return survey, survey_metadata
 
 
