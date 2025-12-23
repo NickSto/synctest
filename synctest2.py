@@ -23,10 +23,10 @@ def make_argparser():
   parser = argparse.ArgumentParser(description=DESCRIPTION,
                                    formatter_class=argparse.RawTextHelpFormatter)
   parser.add_argument('path1', type=pathlib.Path,
-    help='The first directory to compare. You can also give the path to a file of metadata '
+    help=wrap('The first directory to compare. You can also give the path to a file of metadata '
       'produced by file-metadata.py, run on a directory or set of directories. In this case, '
       'though, either both surveys must have the same startpath or all the root paths must be '
-      'absolute.')
+      'absolute.'))
   parser.add_argument('path2', type=pathlib.Path, nargs='?',
     help='The second directory to compare.')
   parser.add_argument('-t', '--tsv', dest='format', action='store_const', const='tsv', default='human',
@@ -283,6 +283,7 @@ def get_missings(missing1, missing2, ignore1, ignore2):
     for missing in missing2:
       yield 'missing1', get_path_type(missing), {'path':None}, {'path':missing}
 
+#TODO: Use metadata.py for more efficient interface to file metadata.
 
 def compare_paths(path1, path2, date_tolerance=0, crc='last'):
   # Start creating the diff data to pass back.
